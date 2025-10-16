@@ -1,4 +1,4 @@
-from transformers import AutoTokenizer
+from transformers import PreTrainedTokenizerBase
 from typing import List
 from Gloss_LLM.constants import GLOSSES
 from Gloss_LLM.constants import MODEL_ID
@@ -10,7 +10,7 @@ Is the list of glosses which are encoded into multiple tokens.
 20 tokens, so 1/10th of our vocabulary.
 """
 
-def encode_gloss(gloss: str,tok: AutoTokenizer)->list[int]:
+def encode_gloss(gloss: str,tok: PreTrainedTokenizerBase)->list[int]:
     """
     Encode a gloss into a list of IDs.
     """
@@ -18,7 +18,7 @@ def encode_gloss(gloss: str,tok: AutoTokenizer)->list[int]:
     return token_ids
 
 
-def encode_all_glosses(glosses: list[str],tok: AutoTokenizer)->list[list[int]]:
+def encode_all_glosses(glosses: list[str],tok: PreTrainedTokenizerBase)->list[str]:
     """
     Encode all the glosses into a list of lists of IDs.
     We want to get the glosses which are encoded into multiple tokens.
@@ -29,6 +29,6 @@ def encode_all_glosses(glosses: list[str],tok: AutoTokenizer)->list[list[int]]:
 
 
 if __name__ == "__main__":
-    tok = AutoTokenizer.from_pretrained(MODEL_ID)
+    tok = PreTrainedTokenizerBase.from_pretrained(MODEL_ID)
     encoded_glosses_multiple_tokens = encode_all_glosses(GLOSSES,tok)
     print(encoded_glosses_multiple_tokens)

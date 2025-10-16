@@ -6,7 +6,7 @@ import torch
 # Glossa-BART model
 DEFAULT_MODEL = "rrrr66254/Glossa-BART"
 
-def load_data(model_name: str = DEFAULT_MODEL):
+def load_data(model_name: str = DEFAULT_MODEL)->tuple[BartTokenizer, BartForConditionalGeneration, str]:
     """
     Loads the model and tokenizer. 
     Uses GPU if available.

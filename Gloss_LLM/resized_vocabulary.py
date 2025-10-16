@@ -1,12 +1,12 @@
 import torch
-from transformers import AutoTokenizer, AutoModelForCausalLM
+from transformers import PreTrainedTokenizerBase, AutoModelForCausalLM
 from Gloss_LLM.constants import MODEL_ID, GLOSSES
 from typing import Set
 from Gloss_LLM.constants import DTYPE, DEVICE_MAP
 from Gloss_LLM.gloss_encoding import encode_gloss
 
 
-def allowed_sequences(glosses: list[str],tok: AutoTokenizer)->Set[tuple[int, ...]]:
+def allowed_sequences(glosses: list[str],tok: PreTrainedTokenizerBase)->Set[tuple[int, ...]]:
     """
     Compute all the allowed sequences for the glosses.
     For a gloss we allow "gloss" and " gloss".
@@ -19,7 +19,7 @@ def allowed_sequences(glosses: list[str],tok: AutoTokenizer)->Set[tuple[int, ...
         allowed_sequences.add(ids_after)
     return allowed_sequences
 
-def allowed_token_ids(glosses: list[str],tok: AutoTokenizer,EOS: int)->tuple[list[int],Set[tuple[int, ...]]]:
+def allowed_token_ids(glosses: list[str],tok: PreTrainedTokenizerBase,EOS: int)->tuple[list[int],Set[tuple[int, ...]]]:
     """
     Compute the allowed token IDs for the glosses.
     """
@@ -28,14 +28,14 @@ def allowed_token_ids(glosses: list[str],tok: AutoTokenizer,EOS: int)->tuple[lis
     return sorted(set(gloss_ids) | {EOS}), sequences
 
 
-def token_str(tid: int,EOS: int,tok: AutoTokenizer) -> str:
+def token_str(tid: int,EOS: int,tok: PreTrainedTokenizerBase) -> str:
     """
     Convert a token ID to a string.
     """
     if tid == EOS:
         return "<eos>"
     # convert_ids_to_tokens montre le préfixe d'espace explicitement; decode([tid]) donne le rendu textuel
-    s = tok.convert_ids_to_tokens(tid)
+    s :str= tok.convert_ids_to_tokens(tid)
     # Affiche aussi la variante décodée (utile pour vérifier les espaces)
     try:
         d = tok.decode([tid])
@@ -45,12 +45,12 @@ def token_str(tid: int,EOS: int,tok: AutoTokenizer) -> str:
         pass
     return s
 
-def print_prob_table(ids, probs, EOS: int,tok: AutoTokenizer, top_k=None):
+def print_prob_table(ids, probs, EOS: int,tok: PreTrainedTokenizerBase, top_k=None)->list[tuple[int, float]]:
     """
     Print the probability table for the next gloss.
     """
     # ids: list of allowed IDs, probs: tensor [vocab] already softmaxed after masking
-    rows = []
+    rows :list[tuple[int, float]] = []
     for tid in ids:
         rows.append((tid, probs[tid].item()))
     rows.sort(key=lambda x: x[1], reverse=True)
@@ -62,7 +62,7 @@ def print_prob_table(ids, probs, EOS: int,tok: AutoTokenizer, top_k=None):
     return rows
 
 
-def compute_next_gloss_probability(gloss_sequence: list[str],glosses: list[str],tok: AutoTokenizer,model: AutoModelForCausalLM,EOS: int,device: str = "cpu")->tuple[list[int],Set[tuple[int, ...]]]:
+def compute_next_gloss_probability(gloss_sequence: list[str],glosses: list[str],tok: PreTrainedTokenizerBase,model: AutoModelForCausalLM,EOS: int,device: str = "cpu")->tuple[list[int],Set[tuple[int, ...]]]:
     """
     Compute the probabilities for the next gloss given a gloss_sequence.
     """
@@ -90,7 +90,7 @@ def compute_next_gloss_probability(gloss_sequence: list[str],glosses: list[str],
 
 
    
-def get_probability_of_a_gloss(gloss: str,tok: AutoTokenizer,probs: torch.Tensor)->float:
+def get_probability_of_a_gloss(gloss: str,tok: PreTrainedTokenizerBase,probs: torch.Tensor)->float:
     """
     Get the probability of a gloss.
     """
@@ -101,7 +101,7 @@ def get_probability_of_a_gloss(gloss: str,tok: AutoTokenizer,probs: torch.Tensor
         return probs[0, gloss_ids].item()
 
 def prompt_testing(prompt:str):
-    tok = AutoTokenizer.from_pretrained(MODEL_ID)
+    tok = PreTrainedTokenizerBase.from_pretrained(MODEL_ID)
     model = AutoModelForCausalLM.from_pretrained(MODEL_ID, dtype=DTYPE, device_map=DEVICE_MAP)
     model.eval()
     EOS = tok.eos_token_id
