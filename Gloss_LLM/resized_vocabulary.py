@@ -89,22 +89,16 @@ def compute_next_gloss_probability(gloss_sequence: list[str],glosses: list[str],
     return probs, allow_token_ids, inputs
 
 
-def get_probability_of_a_gloss(gloss_sequence: list[str],possible_glosses: list[str],next_gloss: str,tok: AutoTokenizer,model: AutoModelForCausalLM,EOS: int,device: str = "cpu")->tuple[list[int],Set[tuple[int, ...]]]:
+   
+def get_probability_of_a_gloss(gloss: str,tok: AutoTokenizer,probs: torch.Tensor)->float:
     """
-    Compute the probabilities for a next gloss given a gloss_sequence.
-    If the next gloss is divided into multiple tokens, we return 0.0
+    Get the probability of a gloss.
     """
-    next_gloss_ids = encode_gloss(next_gloss,tok)
-    probs, allowed_token_ids, inputs = compute_next_gloss_probability(gloss_sequence,possible_glosses,tok,model,EOS,device)
-    
-    if len(next_gloss_ids) != 1:
+    gloss_ids = encode_gloss(gloss,tok)
+    if len(gloss_ids) != 1:
         return 0.0
     else:
-        #print(next_gloss, probs[0, next_gloss_ids].item())
-        return probs[0, next_gloss_ids].item()
-    
-
-
+        return probs[0, gloss_ids].item()
 
 def prompt_testing(prompt:str):
     tok = AutoTokenizer.from_pretrained(MODEL_ID)

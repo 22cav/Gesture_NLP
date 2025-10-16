@@ -75,24 +75,21 @@ def beam_search_slots_with_llm(gloss_sequence: List[ProbabilityDistribution],mod
         candidates: List[Tuple[List[str], float]] = []
         # We look into each best sequence
         for seq, score in best_sequences:
-            # For each best sequence, we add the new token to the sequence and compute the new score
-            for token, proba in slot:
-                # If it's the first slot, we use the probability distribution from the CV model
-                if slot_index == 0:
+            # if the index is 0 we use the probability distribution from the CV model
+            if slot_index == 0:
+                for token, proba in slot:
                     candidates.append((seq + [token], score + math.log(proba)))
-                # If it is not the first slot, we use the probability distribution from the LLM model
-                else:
-                    llm_proba = get_probability_of_a_gloss(seq,GLOSSES,token,tokenizer,model,EOS,device)
-                    # If the probability of a token is 0, we discard the sequence automatically
+            else:
+                # if the index is not 0 we use the probability distribution from the LLM model
+                llm_probabilities, allowed_token_ids, inputs = compute_next_gloss_probability(seq,GLOSSES,tokenizer,model,EOS,device)
+                # we compute the probability of each token in the slot
+                for token, proba in slot:
+                    llm_proba = get_probability_of_a_gloss(token,tokenizer,llm_probabilities)
                     if llm_proba == 0.0:
                         candidates.append((seq + [token], -math.inf))
                     else:
                         candidates.append((seq + [token], score + math.log(llm_proba)))
-            if slot_index == 1:
-                probs,allowed_token_ids,inputs = compute_next_gloss_probability(seq,GLOSSES,tokenizer,model,EOS,device)
-                print_prob_table(allowed_token_ids,probs[0],EOS,tokenizer)
-                print('--------------------------------')
-                print('\n')
+            
         # Computes the top-k new sequences
         candidates.sort(key=lambda x: x[1], reverse=True)
         best_sequences = candidates[:beam_size]
@@ -108,6 +105,7 @@ def beam_search_slots_with_llm(gloss_sequence: List[ProbabilityDistribution],mod
         # As we work with log, we need to convert the score to a probability
         out.append((seq, score, math.exp(score)))
     return out
+
 
 
 
