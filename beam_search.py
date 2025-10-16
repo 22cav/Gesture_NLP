@@ -81,7 +81,9 @@ def beam_search_slots_with_llm(gloss_sequence: List[ProbabilityDistribution],mod
                     candidates.append((seq + [token], score + math.log(proba)))
             else:
                 # if the index is not 0 we use the probability distribution from the LLM model
-                llm_probabilities, allowed_token_ids, inputs = compute_next_gloss_probability(seq,GLOSSES,tokenizer,model,EOS,device)
+                # We only use the glosses in the spot. We don't need the probabilities of the whole vocabulary.
+                possible_glosses_in_slot = [token for token, _ in slot]
+                llm_probabilities, allowed_token_ids, inputs = compute_next_gloss_probability(seq,possible_glosses_in_slot,tokenizer,model,EOS,device)
                 # we compute the probability of each token in the slot
                 for token, proba in slot:
                     llm_proba = get_probability_of_a_gloss(token,tokenizer,llm_probabilities)
