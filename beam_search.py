@@ -5,6 +5,8 @@ from Gloss_LLM.constants import GLOSSES
 from Gloss_LLM.resized_vocabulary import get_probability_of_a_gloss
 ProbabilityDistribution = Dict[str, float]
 from Gloss_LLM.constants import MODEL_ID, DTYPE, DEVICE_MAP
+from Gloss_LLM.resized_vocabulary import print_prob_table
+from Gloss_LLM.resized_vocabulary import compute_next_gloss_probability
 def from_dic_sequence_to_list_sequence(gloss_sequence: List[ProbabilityDistribution],log_proba: bool = False) -> List[List[Tuple[str, float]]]:
     """
     Convert a list of dictionary sequence to a list of list sequence.
@@ -31,17 +33,6 @@ def beam_search_slots_given_probability_distribution(gloss_sequence: List[Probab
     """
 
     gloss_sequence_log = from_dic_sequence_to_list_sequence(gloss_sequence,log_proba=True)
-    # We don't need this if the function is working well
-    """# changes the probability distribution to a log probability distribution
-    gloss_sequence_log: List[List[Tuple[str, float]]] = []
-    for slot in gloss_sequence_list:
-        items = slot.items()
-        step = []
-        for tok, p in items:
-            logp = -math.inf if p <= 0.0 else math.log(float(p))
-            step.append((tok, logp))
-        gloss_sequence_log.append(step)"""
-
 
     # the beam_size best sequences
     best_sequences: List[Tuple[List[str], float]] = [([], 0.0)]  # (sequence, sum_logp)
@@ -97,9 +88,16 @@ def beam_search_slots_with_llm(gloss_sequence: List[ProbabilityDistribution],mod
                         candidates.append((seq + [token], -math.inf))
                     else:
                         candidates.append((seq + [token], score + math.log(llm_proba)))
+            if slot_index == 1:
+                probs,allowed_token_ids,inputs = compute_next_gloss_probability(seq,GLOSSES,tokenizer,model,EOS,device)
+                print_prob_table(allowed_token_ids,probs[0],EOS,tokenizer)
+                print('--------------------------------')
+                print('\n')
         # Computes the top-k new sequences
         candidates.sort(key=lambda x: x[1], reverse=True)
         best_sequences = candidates[:beam_size]
+        if slot_index == 1:
+            print(best_sequences)
         slot_index += 1
     
     # Computes the top-n best sequences
@@ -116,11 +114,11 @@ def beam_search_slots_with_llm(gloss_sequence: List[ProbabilityDistribution],mod
 # Example
 if __name__ == "__main__":
     slots = [
-        {"I": 0.4, "you": 0.25, "we": 0.15, "they": 0.1, "he": 0.06, "she": 0.04},
+        {"i": 0.4, "you": 0.25, "we": 0.15, "they": 0.1, "he": 0.06, "she": 0.04},
         {"want": 0.5, "like": 0.2, "need": 0.15, "eat": 0.1, "go": 0.03, "watch": 0.02},
-        {"a": 0.45, "the": 0.25, "some": 0.15, "to": 0.1, "—": 0.03, "my": 0.02},
-        {"pizza": 0.35, "movie": 0.25, "restaurant": 0.2, "water": 0.1, "ring": 0.06, "fireball": 0.04},
-        {"now": 0.3, "today": 0.25, "please": 0.2, "soon": 0.15, "outside": 0.06, "together": 0.04},
+        {"a": 0.45, "the": 0.25, "some": 0.15, "to": 0.1, "of": 0.03, "my": 0.02},
+        {"pizza": 0.35, "movie": 0.25, "restaurant": 0.2, "water": 0.1, "ring": 0.06, "airplane": 0.04},
+        {"now": 0.3, "today": 0.25, "please": 0.2, "soon": 0.15, "outside": 0.06, "house": 0.04},
     ]
 
     tops = beam_search_slots_given_probability_distribution(slots, beam_size=4, n_best=3)
@@ -137,6 +135,5 @@ if __name__ == "__main__":
     device = model.device
 
     tops = beam_search_slots_with_llm(slots,model,tok,beam_size=4,n_best=3,EOS=EOS,device=device)
-    print(tops)
     for i, (seq, s_log, p) in enumerate(tops, 1):
         print(f"{i:>2}. {' '.join(seq):50s}  logP={s_log:.4f}  P={p:.6f}")

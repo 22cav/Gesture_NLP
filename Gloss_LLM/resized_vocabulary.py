@@ -3,13 +3,8 @@ from transformers import AutoTokenizer, AutoModelForCausalLM
 from Gloss_LLM.constants import MODEL_ID, GLOSSES
 from typing import Set
 from Gloss_LLM.constants import DTYPE, DEVICE_MAP
+from Gloss_LLM.gloss_encoding import encode_gloss
 
-
-def encode_gloss(gloss: str,tok: AutoTokenizer)->list[int]:
-    """
-    Encode a gloss into a list of IDs.
-    """
-    return tok.encode(gloss, add_special_tokens=False)
 
 def allowed_sequences(glosses: list[str],tok: AutoTokenizer)->Set[tuple[int, ...]]:
     """
@@ -85,9 +80,12 @@ def compute_next_gloss_probability(gloss_sequence: list[str],glosses: list[str],
     mask[0, allow_token_ids] = 0.0
     masked_logits = logits + mask
 
-    # Renormalizes the probabilities for the next token
-    probs = torch.softmax(masked_logits, dim=-1)
+    # numerical stability
+    masked_logits = torch.nan_to_num(masked_logits, nan=-1e9, posinf=1e9, neginf=-1e9)
 
+    # stable softmax (subtract max)
+    masked_logits = masked_logits - masked_logits.max(dim=-1, keepdim=True).values
+    probs = torch.softmax(masked_logits, dim=-1)
     return probs, allow_token_ids, inputs
 
 
@@ -98,9 +96,11 @@ def get_probability_of_a_gloss(gloss_sequence: list[str],possible_glosses: list[
     """
     next_gloss_ids = encode_gloss(next_gloss,tok)
     probs, allowed_token_ids, inputs = compute_next_gloss_probability(gloss_sequence,possible_glosses,tok,model,EOS,device)
+    
     if len(next_gloss_ids) != 1:
         return 0.0
     else:
+        #print(next_gloss, probs[0, next_gloss_ids].item())
         return probs[0, next_gloss_ids].item()
     
 
