@@ -1,11 +1,13 @@
 import torch
+from torch import Tensor
+from jaxtyping import Float
 from transformers import PreTrainedTokenizerBase, AutoModelForCausalLM
 from Gloss_LLM.constants import MODEL_ID, GLOSSES
 from typing import Set
 from Gloss_LLM.constants import DTYPE, DEVICE_MAP
 from Gloss_LLM.gloss_encoding import encode_gloss
-
-
+from transformers.modeling_outputs import CausalLMOutputWithCrossAttentions as CausalLMOutput
+from transformers import PreTrainedModel
 def allowed_sequences(glosses: list[str],tok: PreTrainedTokenizerBase)->Set[tuple[int, ...]]:
     """
     Compute all the allowed sequences for the glosses.
@@ -45,7 +47,7 @@ def token_str(tid: int,EOS: int,tok: PreTrainedTokenizerBase) -> str:
         pass
     return s
 
-def print_prob_table(ids, probs, EOS: int,tok: PreTrainedTokenizerBase, top_k=None)->list[tuple[int, float]]:
+def print_prob_table(ids:list[int], probs:Float[Tensor, "1 vocab"], EOS: int,tok: PreTrainedTokenizerBase, top_k:int|None=None)->list[tuple[int, float]]:
     """
     Print the probability table for the next gloss.
     """
@@ -62,12 +64,14 @@ def print_prob_table(ids, probs, EOS: int,tok: PreTrainedTokenizerBase, top_k=No
     return rows
 
 
-def compute_next_gloss_probability(gloss_sequence: list[str],glosses: list[str],tok: PreTrainedTokenizerBase,model: AutoModelForCausalLM,EOS: int,device: str = "cpu")->tuple[list[int],Set[tuple[int, ...]]]:
+def compute_next_gloss_probability(gloss_sequence: list[str],glosses: list[str],tok: PreTrainedTokenizerBase,\
+                                   model: PreTrainedModel,EOS: int,device: torch.device=torch.device("cpu"))->\
+                            tuple[Float[Tensor, "1 vocab"],list[int],dict[str, Float[Tensor, "1 seq_len int"]]]:
     """
     Compute the probabilities for the next gloss given a gloss_sequence.
     """
 
-    inputs = tok(gloss_sequence, return_tensors="pt").to(device)
+    inputs :dict[str, Float[Tensor, "1 seq_len", torch.long]] = tok(gloss_sequence, return_tensors="pt").to(device)
     # computes the logits for the next token
     with torch.no_grad():
         out = model(**inputs)
@@ -85,12 +89,12 @@ def compute_next_gloss_probability(gloss_sequence: list[str],glosses: list[str],
 
     # stable softmax (subtract max)
     masked_logits = masked_logits - masked_logits.max(dim=-1, keepdim=True).values
-    probs = torch.softmax(masked_logits, dim=-1)
+    probs :Float[Tensor, "1 vocab"] = torch.softmax(masked_logits, dim=-1)
     return probs, allow_token_ids, inputs
 
 
    
-def get_probability_of_a_gloss(gloss: str,tok: PreTrainedTokenizerBase,probs: torch.Tensor)->float:
+def get_probability_of_a_gloss(gloss: str,tok: PreTrainedTokenizerBase,probs: Float[Tensor, "1 vocab"])->float:
     """
     Get the probability of a gloss.
     """
@@ -100,7 +104,7 @@ def get_probability_of_a_gloss(gloss: str,tok: PreTrainedTokenizerBase,probs: to
     else:
         return probs[0, gloss_ids].item()
 
-def prompt_testing(prompt:str):
+def prompt_testing(prompt:list[str])-> None:
     tok = PreTrainedTokenizerBase.from_pretrained(MODEL_ID)
     model = AutoModelForCausalLM.from_pretrained(MODEL_ID, dtype=DTYPE, device_map=DEVICE_MAP)
     model.eval()
@@ -123,7 +127,7 @@ def prompt_testing(prompt:str):
     next_prob = allowed_probs[next_index_in_allowed].item()
 
     print("\nSampled next token:")
-    print(f"  id={next_tid}, tok={token_str(next_tid,EOS,tok)}, p={next_prob:.6f}")
+    print(f"  id={next_tid}, tok={token_str(int(next_tid),EOS,tok)}, p={next_prob:.6f}")
 
     # ------------ Concat et affichage de la séquence étendue ------------
     new_input_ids = torch.cat([inputs["input_ids"], torch.tensor([[next_tid]], device=inputs["input_ids"].device)], dim=-1)
@@ -131,4 +135,4 @@ def prompt_testing(prompt:str):
     print(tok.decode(new_input_ids[0], skip_special_tokens=True))
 
 if __name__ == "__main__":
-    prompt_testing(prompt="me want eat")
+    prompt_testing(prompt=["me", "want", "eat"])
