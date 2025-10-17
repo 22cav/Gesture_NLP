@@ -85,13 +85,13 @@ def beam_search_slots_with_llm(gloss_sequence: List[ProbabilityDistribution],mod
     """
 
 
-    """# Add dots to each slot of the sequence except the 2 first slots.
+    # Add dots to each slot of the sequence except the 2 first slots.
     gloss_sequence_with_dots = add_dot_to_sequence(gloss_sequence,first_dot=3)
-    gloss_sequence_list = from_dic_sequence_to_list_sequence(gloss_sequence_with_dots,log_proba=False)"""
+    gloss_sequence_list = from_dic_sequence_to_list_sequence(gloss_sequence_with_dots,log_proba=False)
 
 
 
-    gloss_sequence_list = from_dic_sequence_to_list_sequence(gloss_sequence,log_proba=False)
+    #gloss_sequence_list = from_dic_sequence_to_list_sequence(gloss_sequence,log_proba=False)
     best_sequences: List[Tuple[List[str], float,float]] = [([], 0.0,0.0)]  # (sequence, sum_logp,rerank)
     slot_index = 0
     for slot in gloss_sequence_list:
@@ -101,6 +101,7 @@ def beam_search_slots_with_llm(gloss_sequence: List[ProbabilityDistribution],mod
         
         # We look into each best sequence
         for seq, score,_ in best_sequences:
+
             # if the index is 0 we use the probability distribution from the CV model
             if slot_index == 0:
                 for token, proba in slot:
@@ -112,6 +113,9 @@ def beam_search_slots_with_llm(gloss_sequence: List[ProbabilityDistribution],mod
                         rerank = new_score / length_penalty_score
                         candidates.append((seq + [token], new_score,rerank))
             else:
+                # if the last token is a dot, we don't add a new token to the sequence
+                if seq[-1] == ".":
+                    continue
                 # if the index is not 0 we use the probability distribution from the LLM model
                 # We only use the glosses in the spot. We don't need the probabilities of the whole vocabulary.
                 possible_glosses_in_slot = [token for token, _ in slot]
@@ -156,9 +160,9 @@ if __name__ == "__main__":
         {"now": 0.3, "today": 0.25, "please": 0.2, "soon": 0.15, "outside": 0.06, "house": 0.04},
     ]
 
-    tops = beam_search_slots_given_probability_distribution(slots, beam_size=4, n_best=3)
+    """tops = beam_search_slots_given_probability_distribution(slots, beam_size=4, n_best=3)
     for i, (seq, s_log, p) in enumerate(tops, 1):
-        print(f"{i:>2}. {' '.join(seq):50s}  logP={s_log:.4f}  P={p:.6f}")
+        print(f"{i:>2}. {' '.join(seq):50s}  logP={s_log:.4f}  P={p:.6f}")"""
     
     
     
