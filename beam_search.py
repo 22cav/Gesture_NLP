@@ -7,6 +7,21 @@ ProbabilityDistribution = Dict[str, float]
 from Gloss_LLM.constants import MODEL_ID, DTYPE, DEVICE_MAP
 from Gloss_LLM.resized_vocabulary import print_prob_table
 from Gloss_LLM.resized_vocabulary import compute_next_gloss_probability
+
+def add_dot_to_sequence(gloss_sequence: List[ProbabilityDistribution],first_dot:int = 1) -> List[ProbabilityDistribution]:
+    """
+    Adds a dot to each slot of the sequence except the first one.
+    The dot will have a probability of 0.0. This is not a problem as we only use the CV probabilities for the first slot.
+    """
+    new_sequence: List[ProbabilityDistribution] = []
+    for i, slot in enumerate(gloss_sequence):
+        if i < first_dot:
+            new_sequence.append(slot)
+        else:
+            new_sequence.append({**slot, ".": 0.0})
+    return new_sequence
+
+
 def from_dic_sequence_to_list_sequence(gloss_sequence: List[ProbabilityDistribution],log_proba: bool = False) -> List[List[Tuple[str, float]]]:
     """
     Convert a list of dictionary sequence to a list of list sequence.
@@ -60,25 +75,42 @@ def beam_search_slots_given_probability_distribution(gloss_sequence: List[Probab
     return out
 
 
-def beam_search_slots_with_llm(gloss_sequence: List[ProbabilityDistribution],model: AutoModelForCausalLM,tokenizer: AutoTokenizer, beam_size: int = 4,n_best: int = 5,EOS: int = 1000,device: str = "cpu") -> List[Tuple[List[str], float, float]]:
+def beam_search_slots_with_llm(gloss_sequence: List[ProbabilityDistribution],model: AutoModelForCausalLM,tokenizer: AutoTokenizer, beam_size: int = 4,n_best: int = 5,EOS: int = 1000,device: str = "cpu",length_penalty:float = 1.0) -> List[Tuple[List[str], float, float]]:
     """
     Beam search for len(gloss_sequence) slots.
     - beam_size : amount of sequences to keep
     - n_best : amount of sequences to return
     Return : list of (sequence[str], score_log, proba)
+    Uses a length penalty to penalize early stopping.
     """
-    gloss_sequence_list = from_dic_sequence_to_list_sequence(gloss_sequence,log_proba=False)
 
-    best_sequences: List[Tuple[List[str], float]] = [([], 0.0)]  # (sequence, sum_logp)
+
+    """# Add dots to each slot of the sequence except the 2 first slots.
+    gloss_sequence_with_dots = add_dot_to_sequence(gloss_sequence,first_dot=3)
+    gloss_sequence_list = from_dic_sequence_to_list_sequence(gloss_sequence_with_dots,log_proba=False)"""
+
+
+
+    gloss_sequence_list = from_dic_sequence_to_list_sequence(gloss_sequence,log_proba=False)
+    best_sequences: List[Tuple[List[str], float,float]] = [([], 0.0,0.0)]  # (sequence, sum_logp,rerank)
     slot_index = 0
     for slot in gloss_sequence_list:
-        candidates: List[Tuple[List[str], float]] = []
+        candidates: List[Tuple[List[str], float,float]] = []
+        # The length penalty score for this slot
+        length_penalty_score = ((5+(slot_index+1))**length_penalty) / (6**length_penalty)
+        
         # We look into each best sequence
-        for seq, score in best_sequences:
+        for seq, score,_ in best_sequences:
             # if the index is 0 we use the probability distribution from the CV model
             if slot_index == 0:
                 for token, proba in slot:
-                    candidates.append((seq + [token], score + math.log(proba)))
+                    if proba == 0.0:
+                        candidates.append((seq + [token], -math.inf, -math.inf))
+                    else:
+                        new_score = score + math.log(proba)
+                        # The rerank is used to rank the sequences with the length penalty
+                        rerank = new_score / length_penalty_score
+                        candidates.append((seq + [token], new_score,rerank))
             else:
                 # if the index is not 0 we use the probability distribution from the LLM model
                 # We only use the glosses in the spot. We don't need the probabilities of the whole vocabulary.
@@ -88,22 +120,25 @@ def beam_search_slots_with_llm(gloss_sequence: List[ProbabilityDistribution],mod
                 for token, proba in slot:
                     llm_proba = get_probability_of_a_gloss(token,tokenizer,llm_probabilities)
                     if llm_proba == 0.0:
-                        candidates.append((seq + [token], -math.inf))
+                        candidates.append((seq + [token], -math.inf, -math.inf))
                     else:
-                        candidates.append((seq + [token], score + math.log(llm_proba)))
+                        new_score = score + math.log(llm_proba)
+                        # The rerank is used to rank the sequences with the length penalty
+                        rerank = new_score / length_penalty_score
+                        candidates.append((seq + [token], new_score,rerank))
             
-        # Computes the top-k new sequences
-        candidates.sort(key=lambda x: x[1], reverse=True)
+        # Computes the top-k new sequences based on the rerank score
+        candidates.sort(key=lambda x: x[2], reverse=True)
         best_sequences = candidates[:beam_size]
-        if slot_index == 1:
+        if slot_index == 3:
             print(best_sequences)
         slot_index += 1
     
-    # Computes the top-n best sequences
-    best_sequences.sort(key=lambda x: x[1], reverse=True)
+    # Computes the top-n best sequences based on the rerank score
+    best_sequences.sort(key=lambda x: x[2], reverse=True)
 
     out = []
-    for seq, score in best_sequences[:n_best]:
+    for seq, score,_ in best_sequences[:n_best]:
         # As we work with log, we need to convert the score to a probability
         out.append((seq, score, math.exp(score)))
     return out

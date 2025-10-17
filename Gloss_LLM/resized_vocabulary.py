@@ -8,6 +8,7 @@ from Gloss_LLM.constants import DTYPE, DEVICE_MAP
 from Gloss_LLM.gloss_encoding import encode_gloss
 from transformers.modeling_outputs import CausalLMOutputWithCrossAttentions as CausalLMOutput
 from transformers import PreTrainedModel
+
 def allowed_sequences(glosses: list[str],tok: PreTrainedTokenizerBase)->Set[tuple[int, ...]]:
     """
     Compute all the allowed sequences for the glosses.

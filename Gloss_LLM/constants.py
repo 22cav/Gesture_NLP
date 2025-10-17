@@ -12,6 +12,6 @@ GLOSSES=["a","act","also","learn","leave","like","live","love","make","man","man
         "buy","bye","call","camera","adult","can","car","cat","child","city","clean","clock","college","come","company","after","computer","cook","dad",
         "day","different","difficult","dinner","doctor","again","dog","done","door","drink","drive","eat","education","end","enough","family","age","fast",
         "father","feel","find","finish","food","for","friend","from","game","airplane","get","girl","give","go","good","goodbye","happy","have","hello","help",
-        "all","here","home","hot","house","how","i","idea","if","in","know"]
+        "all","here","home","hot","house","how","i","idea","if","in","know","."]
 DTYPE = torch.bfloat16  # ou torch.float16 / torch.float32 selon ton HW
 DEVICE_MAP = "auto"
