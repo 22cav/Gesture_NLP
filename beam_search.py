@@ -8,6 +8,7 @@ from Gloss_LLM.resized_vocabulary import print_prob_table
 from Gloss_LLM.resized_vocabulary import compute_next_gloss_probability
 from Gloss_LLM.resized_vocabulary import compute_next_gloss_probability_batch
 from Gloss_LLM.resized_vocabulary import compute_gloss_probabilities_for_slot
+from Gloss_LLM.resized_vocabulary import compute_gloss_probabilities_for_slot_batch
 
 def add_dot_to_sequence(gloss_sequence: List[ProbabilityDistribution],first_dot:int = 1) -> List[ProbabilityDistribution]:
     """
@@ -114,16 +115,27 @@ def beam_search_slots_with_llm(gloss_sequence: List[ProbabilityDistribution],mod
                         rerank = new_score / length_penalty_score
                         candidates.append((seq + [token], new_score,rerank))
             else:
-                # if the last token is a dot, we don't add a new token to the sequence
+                # if the last token is a dot, keep the sequence but don't extend it
                 if seq[-1] == ".":
+                    candidates.append((seq, score, score / length_penalty_score))
                     continue
                 # if the index is not 0 we use the probability distribution from the LLM model
                 # We only use the glosses in the spot. We don't need the probabilities of the whole vocabulary.
                 possible_glosses_in_slot = [token for token, _ in slot]
-                llm_probabilities, allowed_token_ids, inputs = compute_next_gloss_probability(seq,possible_glosses_in_slot,tokenizer,model,EOS,device)
+                
+                # Compute probabilities for all glosses (handles multi-token properly)
+                gloss_probs = compute_gloss_probabilities_for_slot(
+                    prefix_sequence=seq,
+                    candidate_glosses=possible_glosses_in_slot,
+                    tok=tokenizer,
+                    model=model,
+                    EOS=EOS,
+                    device=device
+                )
+                
                 # we compute the probability of each token in the slot
                 for token, proba in slot:
-                    llm_proba = get_probability_of_a_gloss(token,tokenizer,llm_probabilities)
+                    llm_proba = gloss_probs.get(token, 0.0)
                     if llm_proba == 0.0:
                         candidates.append((seq + [token], -math.inf, -math.inf))
                     else:
@@ -203,18 +215,18 @@ def beam_search_slots_with_llm_batched(gloss_sequence: List[ProbabilityDistribut
                 # Pre-compute allowed token IDs for this slot (expensive, so compute once)
                 cached_allowed_ids, _ = compute_allowed_token_ids(possible_glosses_in_slot, tokenizer, EOS)
                 
-                # Get batched probabilities for all sequences
-                batch_probs, _ = compute_next_gloss_probability_batch(
+                # Get batched probabilities for all sequences (handles multi-token glosses)
+                batch_gloss_probs = compute_gloss_probabilities_for_slot_batch(
                     active_seqs_only, possible_glosses_in_slot, tokenizer, model, EOS, device,
                     cached_allowed_ids=cached_allowed_ids
                 )
                 
                 # Now expand each sequence with its corresponding probabilities
                 for idx, (seq, score, _) in enumerate(active_sequences):
-                    llm_probabilities = batch_probs[idx]  # Get probabilities for this sequence
+                    gloss_probs = batch_gloss_probs[idx]  # Get probabilities for this sequence
                     
                     for token, proba in slot:
-                        llm_proba = get_probability_of_a_gloss(token, tokenizer, llm_probabilities)
+                        llm_proba = gloss_probs.get(token, 0.0)
                         if llm_proba == 0.0:
                             candidates.append((seq + [token], -math.inf, -math.inf))
                         else:

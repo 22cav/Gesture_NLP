@@ -201,7 +201,9 @@ def get_probability_of_a_gloss_multitoken(gloss: str, prefix_sequence: list[str]
     gloss_ids = encode_gloss(gloss, tok)
     
     if len(gloss_ids) == 1:
-        inputs = tok(prefix_sequence, return_tensors="pt").to(device)
+        # Single token case - join prefix sequence into string for proper tokenization
+        prefix_string = " ".join(prefix_sequence) if prefix_sequence else ""
+        inputs = tok(prefix_string, return_tensors="pt").to(device)
         with torch.no_grad():
             out = model(**inputs)
             logits = out.logits[:, -1, :].float()
@@ -227,8 +229,9 @@ def get_probability_of_a_gloss_multitoken(gloss: str, prefix_sequence: list[str]
     
     # Compute probability for each token in sequence
     for i, token_id in enumerate(token_ids):
-        # Tokenize current sequence
-        inputs = tok(current_sequence, return_tensors="pt").to(device)
+        # Tokenize current sequence - join into string for proper tokenization
+        current_string = " ".join(current_sequence) if current_sequence else ""
+        inputs = tok(current_string, return_tensors="pt").to(device)
         
         with torch.no_grad():
             out = model(**inputs)
@@ -282,13 +285,26 @@ def compute_gloss_probabilities_for_slot(prefix_sequence: list[str], candidate_g
         else:
             multi_token_glosses.append(gloss)
     
-    # Batch process single-token glosses (efficient)
+    # Batch process single-token glosses (efficient) with masking for consistency
     if single_token_glosses:
-        inputs = tok(prefix_sequence, return_tensors="pt").to(device)
+        # Join prefix sequence into string for proper tokenization
+        prefix_string = " ".join(prefix_sequence) if prefix_sequence else ""
+        inputs = tok(prefix_string, return_tensors="pt").to(device)
         with torch.no_grad():
             out = model(**inputs)
             logits = out.logits[:, -1, :].float()
-            probs = torch.softmax(logits, dim=-1)
+            
+            # Mask logits to only allowed glosses (same as batched version)
+            allow_token_ids, _ = allowed_token_ids(candidate_glosses, tok, EOS)
+            mask = torch.full_like(logits, float("-inf"))
+            mask[0, allow_token_ids] = 0.0
+            masked_logits = logits + mask
+            
+            # Numerical stability
+            masked_logits = torch.nan_to_num(masked_logits, nan=-1e9, posinf=1e9, neginf=-1e9)
+            masked_logits = masked_logits - masked_logits.max(dim=-1, keepdim=True).values
+            
+            probs = torch.softmax(masked_logits, dim=-1)
             
             for gloss in single_token_glosses:
                 gloss_id = encode_gloss(gloss, tok)[0]
@@ -301,6 +317,71 @@ def compute_gloss_probabilities_for_slot(prefix_sequence: list[str], candidate_g
         )
     
     return result
+
+
+def compute_gloss_probabilities_for_slot_batch(prefix_sequences: list[list[str]], 
+                                              candidate_glosses: list[str],
+                                              tok: PreTrainedTokenizerBase, 
+                                              model: PreTrainedModel,
+                                              EOS: int, 
+                                              device: torch.device,
+                                              cached_allowed_ids: tuple = None) -> list[dict[str, float]]:
+    """
+    Batched version of compute_gloss_probabilities_for_slot.
+    Computes probabilities for all candidate glosses for multiple prefix sequences at once.
+    Properly handles multi-token glosses.
+    
+    Args:
+        prefix_sequences: List of prefix sequences (each is a list of glosses)
+        candidate_glosses: List of possible glosses for this slot
+        tok: Tokenizer
+        model: LLM model
+        EOS: End of sequence token ID
+        device: Device to run on
+        cached_allowed_ids: Pre-computed allowed token IDs for efficiency
+        
+    Returns:
+        List of dictionaries (one per prefix), each mapping gloss -> probability
+    """
+    import math
+    
+    # Separate single-token and multi-token glosses
+    single_token_glosses = []
+    multi_token_glosses = []
+    
+    for gloss in candidate_glosses:
+        gloss_ids = encode_gloss(gloss, tok)
+        if len(gloss_ids) == 1:
+            single_token_glosses.append(gloss)
+        else:
+            multi_token_glosses.append(gloss)
+    
+    # Initialize results for each sequence
+    results = [{} for _ in prefix_sequences]
+    
+    # Batch process single-token glosses (efficient)
+    if single_token_glosses:
+        # Get batched probabilities using existing function
+        batch_probs, _ = compute_next_gloss_probability_batch(
+            prefix_sequences, candidate_glosses, tok, model, EOS, device, cached_allowed_ids
+        )
+        
+        # Extract probabilities for each sequence
+        for idx, probs in enumerate(batch_probs):
+            for gloss in single_token_glosses:
+                gloss_id = encode_gloss(gloss, tok)[0]
+                results[idx][gloss] = probs[gloss_id].item()
+    
+    # Process multi-token glosses (need to do individually for each sequence)
+    if multi_token_glosses:
+        for idx, prefix_seq in enumerate(prefix_sequences):
+            for gloss in multi_token_glosses:
+                results[idx][gloss] = get_probability_of_a_gloss_multitoken(
+                    gloss, prefix_seq, tok, model, EOS, device
+                )
+    
+    return results
+
 
 def prompt_testing(prompt:list[str])-> None:
     tok = PreTrainedTokenizerBase.from_pretrained(MODEL_ID)
